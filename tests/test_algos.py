@@ -6107,6 +6107,26 @@ def test_tax_liabilities_in_backtest():
     assert res["s"].stats.loc["total_return"] < res["untaxed"].stats.loc["total_return"]
 
 
+def test_tax_liabilities_fully_invested_rebalance_keeps_cash_non_negative():
+    # Rebalance reinvests all sale proceeds, so the tax must not be charged
+    # against an empty cash balance and leave the strategy with an implicit loan.
+    dates = pd.bdate_range("2020-01-01", periods=2020)
+    steps = np.arange(len(dates))
+    data = pd.DataFrame({"up": 100 + 0.5 * steps, "down": 200 - 0.05 * steps}, index=dates)
+    taxes = algos.TaxLiabilities(short_term_rate=0.4, long_term_rate=0.2)
+    s = bt.Strategy("s", [algos.RunMonthly(), algos.SelectAll(), algos.WeighEqually(), algos.Rebalance(), taxes])
+    backtest = bt.Backtest(s, data, initial_capital=100000, integer_positions=False)
+    bt.run(backtest)
+
+    strategy = backtest.strategy
+
+    # assert that we charged some tax
+    assert strategy.perm["tax_liabilities"]["tax"].sum() > 0
+
+    # assert that we kept the cash above 0
+    assert strategy.cash.min() >= 0
+
+
 @pytest.mark.parametrize("args", [(-0.1, 0.2), (0.3, float("nan")), (0.3, 0.2, -1.0)])
 def test_tax_liabilities_rejects_invalid_args(args):
     with pytest.raises(ValueError):
